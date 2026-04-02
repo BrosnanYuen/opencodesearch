@@ -2,6 +2,14 @@
 name = "opencodesearch"
 version = "0.1.0"
 edition = "2024"
+authors = ["Brosnan Yuen <brosnanyuen@gmail.com>"]
+description = " Largescale MCP server for codebase search with background indexing and automatic updating to git commits in rust "
+readme = "README.md"
+repository = "https://github.com/BrosnanYuen/opencodesearch"
+keywords = ["mcp", "claude", "crates", "crates.io", "ai"]
+license = "GPL-3.0-only"
+categories = ["development-tools", "web-programming"]
+
 
 [dependencies]
 anyhow = "1.0"
