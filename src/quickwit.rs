@@ -240,4 +240,36 @@ impl QuickwitStore {
 
         Ok(())
     }
+
+    /// Delete all stored code from local shadow index and quickwit index (best effort).
+    pub async fn delete_all_code(&self) -> Result<()> {
+        if self.shadow_path.exists() {
+            tokio::fs::write(&self.shadow_path, "")
+                .await
+                .with_context(|| format!("failed clearing {}", self.shadow_path.display()))?;
+        }
+
+        // Best-effort quickwit clear: attempt index deletion.
+        let delete_index_url = format!(
+            "{}/api/v1/indexes/{}",
+            self.base_url.trim_end_matches('/'),
+            self.index_id
+        );
+        let _ = self.client.delete(delete_index_url).send().await;
+
+        // Best-effort quickwit clear: attempt document delete-all endpoint.
+        let delete_docs_url = format!(
+            "{}/api/v1/{}/delete",
+            self.base_url.trim_end_matches('/'),
+            self.index_id
+        );
+        let _ = self
+            .client
+            .post(delete_docs_url)
+            .json(&serde_json::json!({ "query": "*" }))
+            .send()
+            .await;
+
+        Ok(())
+    }
 }

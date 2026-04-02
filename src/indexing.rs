@@ -132,6 +132,13 @@ impl IndexingRuntime {
         self.quickwit.delete_paths(paths).await?;
         Ok(())
     }
+
+    /// Delete all stored code from both vector and keyword backends.
+    pub async fn delete_all_stored_code(&self) -> Result<()> {
+        self.qdrant.delete_all_code().await?;
+        self.quickwit.delete_all_code().await?;
+        Ok(())
+    }
 }
 
 /// Collect candidate source files while skipping VCS and binary-like files.

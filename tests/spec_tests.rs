@@ -4,9 +4,61 @@ use opencodesearch::mcp::{OpenCodeSearchMcpServer, SearchRequest};
 use rmcp::handler::server::wrapper::Parameters;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn marker_dir() -> PathBuf {
+    repo_root().join(".opencodesearch").join("test-markers")
+}
+
+fn init_marker_dir_once() -> anyhow::Result<()> {
+    static INIT: OnceLock<()> = OnceLock::new();
+    if INIT.get().is_none() {
+        let dir = marker_dir();
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)?;
+        }
+        std::fs::create_dir_all(&dir)?;
+        let _ = INIT.set(());
+    }
+    Ok(())
+}
+
+fn mark_ignored_test_done(test_name: &str) -> anyhow::Result<()> {
+    let marker = marker_dir().join(format!("{test_name}.done"));
+    let now = format!("{:?}", std::time::SystemTime::now());
+    std::fs::write(marker, now)?;
+    Ok(())
+}
+
+fn wait_for_ignored_tests_done() -> anyhow::Result<()> {
+    // zzzz cleanup test must wait until all other ignored tests have completed.
+    const REQUIRED_MARKERS: &[&str] = &[
+        "a_connect_to_docker_ollama_and_run_cargo_test_flow",
+        "b_connect_to_docker_quickwit_and_qdrant",
+        "c_to_f_index_python_project_and_query_via_mcp_logic",
+        "g_and_h_watchdog_handles_100_commit_refactor_updates",
+        "index_moss_kernel_and_retrieve_code",
+    ];
+
+    let start = Instant::now();
+    let timeout = Duration::from_secs(30 * 60);
+    loop {
+        let all_done = REQUIRED_MARKERS
+            .iter()
+            .all(|name| marker_dir().join(format!("{name}.done")).exists());
+        if all_done {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            anyhow::bail!("timed out waiting for all ignored tests to complete");
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
 }
 
 fn docker_compose_up() -> anyhow::Result<()> {
@@ -91,18 +143,21 @@ async fn parses_config_for_tests() {
 #[tokio::test]
 #[ignore = "requires docker compose + ollama model"]
 async fn a_connect_to_docker_ollama_and_run_cargo_test_flow() -> anyhow::Result<()> {
+    init_marker_dir_once()?;
     docker_compose_up()?;
 
     let client = reqwest::Client::new();
     let response = client.get("http://localhost:11434/api/tags").send().await?;
 
     anyhow::ensure!(response.status().is_success(), "ollama endpoint unhealthy");
+    mark_ignored_test_done("a_connect_to_docker_ollama_and_run_cargo_test_flow")?;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires docker compose"]
 async fn b_connect_to_docker_quickwit_and_qdrant() -> anyhow::Result<()> {
+    init_marker_dir_once()?;
     docker_compose_up()?;
 
     let mut quickwit_ok = false;
@@ -123,6 +178,7 @@ async fn b_connect_to_docker_quickwit_and_qdrant() -> anyhow::Result<()> {
         .status()
         .is_success();
     anyhow::ensure!(qdrant_ok, "qdrant health check failed");
+    mark_ignored_test_done("b_connect_to_docker_quickwit_and_qdrant")?;
 
     Ok(())
 }
@@ -130,6 +186,7 @@ async fn b_connect_to_docker_quickwit_and_qdrant() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "requires docker compose, ollama model, and local git"]
 async fn c_to_f_index_python_project_and_query_via_mcp_logic() -> anyhow::Result<()> {
+    init_marker_dir_once()?;
     docker_compose_up()?;
 
     let temp = tempfile::tempdir()?;
@@ -156,6 +213,7 @@ async fn c_to_f_index_python_project_and_query_via_mcp_logic() -> anyhow::Result
         result.contains("module_"),
         "expected code retrieval results"
     );
+    mark_ignored_test_done("c_to_f_index_python_project_and_query_via_mcp_logic")?;
 
     Ok(())
 }
@@ -163,6 +221,7 @@ async fn c_to_f_index_python_project_and_query_via_mcp_logic() -> anyhow::Result
 #[tokio::test]
 #[ignore = "requires docker compose, ollama model, and git remotes"]
 async fn g_and_h_watchdog_handles_100_commit_refactor_updates() -> anyhow::Result<()> {
+    init_marker_dir_once()?;
     docker_compose_up()?;
 
     let temp = tempfile::tempdir()?;
@@ -200,12 +259,14 @@ async fn g_and_h_watchdog_handles_100_commit_refactor_updates() -> anyhow::Resul
         .parse::<usize>()?;
 
     anyhow::ensure!(count >= 101, "expected initial + 100 commits");
+    mark_ignored_test_done("g_and_h_watchdog_handles_100_commit_refactor_updates")?;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore = "requires docker compose, ollama model, and cloned moss-kernel repository"]
 async fn index_moss_kernel_and_retrieve_code() -> anyhow::Result<()> {
+    init_marker_dir_once()?;
     docker_compose_up()?;
 
     let moss_root = repo_root().join("examples").join("moss-kernel");
@@ -232,5 +293,25 @@ async fn index_moss_kernel_and_retrieve_code() -> anyhow::Result<()> {
 
     anyhow::ensure!(!result.contains("\"error\""), "mcp retrieval returned error");
     anyhow::ensure!(result.contains("\"path\""), "no code results returned");
+    mark_ignored_test_done("index_moss_kernel_and_retrieve_code")?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires docker compose; intended final cleanup test"]
+async fn zzzz_delete_all_stored_code_from_qdrant_and_quickwit() -> anyhow::Result<()> {
+    init_marker_dir_once()?;
+    docker_compose_up()?;
+
+    // Force cleanup test to wait for all other ignored tests to complete.
+    wait_for_ignored_tests_done()?;
+
+    // Do not index in this test; only invoke delete-all API.
+    let cfg_path = write_test_config(&repo_root())?;
+    let config = AppConfig::from_path(cfg_path)?;
+    let runtime = IndexingRuntime::from_config(config)?;
+
+    // Run the new cleanup API.
+    runtime.delete_all_stored_code().await?;
     Ok(())
 }

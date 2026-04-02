@@ -153,6 +153,24 @@ impl QdrantStore {
         let _ = paths;
         Ok(())
     }
+
+    /// Delete all stored code vectors by dropping the configured collection.
+    pub async fn delete_all_code(&self) -> Result<()> {
+        let exists = self
+            .client
+            .collection_exists(&self.collection)
+            .await
+            .context("qdrant collection_exists failed during delete_all_code")?;
+
+        if exists {
+            self.client
+                .delete_collection(&self.collection)
+                .await
+                .context("qdrant delete_collection failed during delete_all_code")?;
+        }
+
+        Ok(())
+    }
 }
 
 fn stable_u64_id(input: &str) -> u64 {
