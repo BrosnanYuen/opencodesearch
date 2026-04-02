@@ -151,6 +151,7 @@ async fn c_to_f_index_python_project_and_query_via_mcp_logic() -> anyhow::Result
     };
 
     let result = mcp.search_code(Parameters(payload)).await;
+    println!("c_to_f retrieved results:\n{}", result);
     anyhow::ensure!(
         result.contains("module_"),
         "expected code retrieval results"
@@ -199,5 +200,37 @@ async fn g_and_h_watchdog_handles_100_commit_refactor_updates() -> anyhow::Resul
         .parse::<usize>()?;
 
     anyhow::ensure!(count >= 101, "expected initial + 100 commits");
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires docker compose, ollama model, and cloned moss-kernel repository"]
+async fn index_moss_kernel_and_retrieve_code() -> anyhow::Result<()> {
+    docker_compose_up()?;
+
+    let moss_root = repo_root().join("examples").join("moss-kernel");
+    anyhow::ensure!(
+        moss_root.exists(),
+        "examples/moss-kernel is missing; clone step required"
+    );
+
+    let cfg_path = write_test_config(&moss_root)?;
+    let config = AppConfig::from_path(cfg_path)?;
+    let runtime = IndexingRuntime::from_config(config)?;
+
+    // Index the full cloned project.
+    runtime.index_entire_codebase().await?;
+
+    // Retrieve code through MCP search path.
+    let mcp = OpenCodeSearchMcpServer::new(runtime);
+    let payload = SearchRequest {
+        query: "where is scheduler or task management implemented".to_string(),
+        limit: Some(8),
+    };
+    let result = mcp.search_code(Parameters(payload)).await;
+    println!("index_moss_kernel retrieved results:\n{}", result);
+
+    anyhow::ensure!(!result.contains("\"error\""), "mcp retrieval returned error");
+    anyhow::ensure!(result.contains("\"path\""), "no code results returned");
     Ok(())
 }

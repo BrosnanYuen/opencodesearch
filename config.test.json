@@ -1,6 +1,6 @@
 {
   "codebase": {
-    "directory_path": "/tmp/.tmpAAcWVd",
+    "directory_path": "/home/brosnan/opencodesearch/examples/moss-kernel",
     "git_branch": "main",
     "commit_threshold": 50,
     "mcp_server": "stdio"
