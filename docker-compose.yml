@@ -1,0 +1,31 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: opencodesearch-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: opencodesearch-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  quickwit:
+    image: quickwit/quickwit:latest
+    container_name: opencodesearch-quickwit
+    ports:
+      - "7280:7280"
+    command: ["run"]
+    volumes:
+      - quickwit_data:/quickwit/qwdata
+
+volumes:
+  ollama_data:
+  qdrant_data:
+  quickwit_data:

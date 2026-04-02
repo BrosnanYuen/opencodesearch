@@ -1,0 +1,21 @@
+{
+  "codebase": {
+    "directory_path": "/path/to/massive/repo",
+    "git_branch": "main",
+    "commit_threshold": 50,
+    "mcp_server": "stdio"
+  },
+  "ollama": {
+    "server_url": "http://localhost:11434",
+    "embedding_model": "qwen3-embedding:0.6b",
+    "context_size": 5000
+  },
+  "qdrant": {
+    "server_url": "http://localhost:6334",
+    "api_key": null
+  },
+  "quickwit": {
+    "quickwit_url": "http://localhost:7280",
+    "quickwit_index_id": "opencodesearch-code-chunks"
+  }
+}
