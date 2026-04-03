@@ -164,17 +164,15 @@ impl OpenCodeSearchMcpServer {
             .await
             .unwrap_or_default();
 
-        // Merge and de-duplicate by path + line span.
+        // Merge and de-duplicate by exact snippet text.
         semantic.append(&mut keyword);
         semantic.sort_by(|a, b| b.score.total_cmp(&a.score));
 
         let mut deduped = Vec::new();
         for hit in semantic {
-            let exists = deduped.iter().any(|existing: &SearchHit| {
-                existing.path == hit.path
-                    && existing.start_line == hit.start_line
-                    && existing.end_line == hit.end_line
-            });
+            let exists = deduped
+                .iter()
+                .any(|existing: &SearchHit| existing.snippet == hit.snippet);
 
             if !exists {
                 deduped.push(hit);
