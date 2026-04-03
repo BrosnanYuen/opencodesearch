@@ -53,14 +53,15 @@ pub fn chunk_file(path: &Path, context_size: usize) -> Result<Vec<CodeChunk>> {
     }
 
     // Convert plain chunks into chunk structs with stable IDs and line ranges.
+    let absolute_path = absolute_path_string(path);
     let mut output = Vec::new();
     for (idx, snippet) in chunks.into_iter().enumerate() {
         let (start_line, end_line) = line_range_for_snippet(&content, &snippet);
-        let id = format!("{}:{}:{}:{}", path.display(), idx, start_line, end_line);
+        let id = format!("{}:{}:{}:{}", absolute_path, idx, start_line, end_line);
 
         output.push(CodeChunk {
             id,
-            path: path.display().to_string(),
+            path: absolute_path.clone(),
             snippet,
             start_line,
             end_line,
@@ -154,6 +155,21 @@ fn line_range_for_snippet(content: &str, snippet: &str) -> (usize, usize) {
         (start_line, end_line.max(start_line))
     } else {
         (1, 1)
+    }
+}
+
+fn absolute_path_string(path: &Path) -> String {
+    if let Ok(abs) = path.canonicalize() {
+        return abs.display().to_string();
+    }
+
+    if path.is_absolute() {
+        return path.display().to_string();
+    }
+
+    match std::env::current_dir() {
+        Ok(cwd) => cwd.join(path).display().to_string(),
+        Err(_) => path.display().to_string(),
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "codebase": {
-    "directory_path": "/tmp/.tmp9p32pU",
+    "directory_path": "/home/brosnan/opencodesearch",
     "git_branch": "main",
     "commit_threshold": 50,
     "mcp_server_name": "OpenCodeSearch Test Codebase",

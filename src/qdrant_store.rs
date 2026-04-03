@@ -148,7 +148,7 @@ impl QdrantStore {
                 .unwrap_or_default();
 
             hits.push(SearchHit {
-                path,
+                path: normalize_absolute_path(&path),
                 snippet,
                 start_line: start_line as i64,
                 end_line: end_line as i64,
@@ -238,4 +238,16 @@ fn value_to_usize(value: &qdrant_client::qdrant::Value) -> Option<usize> {
     let raw = value.to_string();
     let trimmed = raw.trim_matches('"');
     trimmed.parse::<usize>().ok()
+}
+
+fn normalize_absolute_path(path: &str) -> String {
+    let candidate = std::path::Path::new(path);
+    if candidate.is_absolute() {
+        return candidate.display().to_string();
+    }
+
+    match std::env::current_dir() {
+        Ok(cwd) => cwd.join(candidate).display().to_string(),
+        Err(_) => candidate.display().to_string(),
+    }
 }

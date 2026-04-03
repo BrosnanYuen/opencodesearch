@@ -128,7 +128,7 @@ impl QuickwitStore {
                     let hay = format!("{}\n{}", chunk.path, chunk.snippet).to_ascii_lowercase();
                     if hay.contains(&query.to_ascii_lowercase()) {
                         hits.push(SearchHit {
-                            path: chunk.path,
+                            path: normalize_absolute_path(&chunk.path),
                             snippet: chunk.snippet,
                             start_line: chunk.start_line as i64,
                             end_line: chunk.end_line as i64,
@@ -186,7 +186,7 @@ impl QuickwitStore {
                             .unwrap_or_default() as usize;
 
                         hits.push(SearchHit {
-                            path,
+                            path: normalize_absolute_path(&path),
                             snippet,
                             start_line: start_line as i64,
                             end_line: end_line as i64,
@@ -271,5 +271,17 @@ impl QuickwitStore {
             .await;
 
         Ok(())
+    }
+}
+
+fn normalize_absolute_path(path: &str) -> String {
+    let candidate = std::path::Path::new(path);
+    if candidate.is_absolute() {
+        return candidate.display().to_string();
+    }
+
+    match std::env::current_dir() {
+        Ok(cwd) => cwd.join(candidate).display().to_string(),
+        Err(_) => candidate.display().to_string(),
     }
 }
