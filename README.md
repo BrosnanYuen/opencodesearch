@@ -63,6 +63,7 @@ Update flow:
   },
   "qdrant": {
     "server_url": "http://localhost:6334",
+    "collection_name": "opencodesearch-code-chunks",
     "api_key": null
   },
   "quickwit": {

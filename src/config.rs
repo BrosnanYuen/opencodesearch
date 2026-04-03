@@ -33,6 +33,7 @@ pub struct OllamaConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QdrantConfig {
     pub server_url: String,
+    pub collection_name: String,
     pub api_key: Option<String>,
 }
 
@@ -79,6 +80,7 @@ mod tests {
             },
             "qdrant": {
                 "server_url": "http://localhost:6334",
+                "collection_name": "opencodesearch-code-chunks",
                 "api_key": null
             },
             "quickwit": {
@@ -90,6 +92,7 @@ mod tests {
         let parsed = serde_json::from_str::<AppConfig>(json).expect("config must parse");
         assert_eq!(parsed.codebase.commit_threshold, 50);
         assert_eq!(parsed.codebase.background_indexing_threads, 2);
+        assert_eq!(parsed.qdrant.collection_name, "opencodesearch-code-chunks");
         assert_eq!(parsed.ollama.embedding_model, "qwen3-embedding:0.6b");
     }
 }

@@ -90,6 +90,7 @@ fn write_test_config(codebase_dir: &Path) -> anyhow::Result<PathBuf> {
         },
         "qdrant": {
             "server_url": "http://localhost:6334",
+            "collection_name": "opencodesearch-code-chunks",
             "api_key": null
         },
         "quickwit": {

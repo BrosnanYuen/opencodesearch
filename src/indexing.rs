@@ -29,7 +29,7 @@ impl IndexingRuntime {
         let qdrant = QdrantStore::new(
             &config.qdrant.server_url,
             config.qdrant.api_key.as_deref(),
-            &config.quickwit.quickwit_index_id,
+            &config.qdrant.collection_name,
         )?;
 
         let quickwit = QuickwitStore::new(
