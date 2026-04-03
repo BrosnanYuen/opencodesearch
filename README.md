@@ -59,7 +59,7 @@ Update flow:
   "ollama": {
     "server_url": "http://localhost:11434",
     "embedding_model": "qwen3-embedding:0.6b",
-    "context_size": 5000
+    "context_size": 2000
   },
   "qdrant": {
     "server_url": "http://localhost:6334",
@@ -168,6 +168,50 @@ Notes:
 - Override TLS file paths with:
   - `OPENCODESEARCH_TLS_CERT_PATH`
   - `OPENCODESEARCH_TLS_KEY_PATH`
+
+### Quick curl test
+Use the included script:
+
+```bash
+./test_mcp_curl.sh
+```
+
+The script performs the required MCP HTTP handshake steps:
+1. `initialize`
+2. extract `mcp-session-id` from response headers
+3. send `notifications/initialized` with the same `mcp-session-id`
+4. call `tools/call` for `search_code`
+
+### Manual curl sequence
+Initialize and capture session id:
+
+```bash
+curl -k -sS -D headers.txt https://localhost:9443/ \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl-test","version":"1.0"}}}'
+```
+
+Send initialized notification:
+
+```bash
+SESSION_ID="$(awk 'tolower($1)=="mcp-session-id:"{print $2}' headers.txt | tr -d '\r' | tail -n 1)"
+curl -k -sS https://localhost:9443/ \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H "mcp-session-id: ${SESSION_ID}" \
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+```
+
+Call the MCP tool:
+
+```bash
+curl -k -N https://localhost:9443/ \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H "mcp-session-id: ${SESSION_ID}" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_code","arguments":{"query":"which function mutates obj","limit":5}}}'
+```
 
 ## Rust API Documentation
 The crate exposes reusable modules for embedding, indexing, MCP serving, and process control.

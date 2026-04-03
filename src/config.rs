@@ -75,7 +75,7 @@ mod tests {
             "ollama": {
                 "server_url": "http://localhost:11434",
                 "embedding_model": "qwen3-embedding:0.6b",
-                "context_size": 5000
+                "context_size": 2000
             },
             "qdrant": {
                 "server_url": "http://localhost:6334",
