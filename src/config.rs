@@ -17,6 +17,7 @@ pub struct CodebaseConfig {
     pub directory_path: PathBuf,
     pub git_branch: String,
     pub commit_threshold: usize,
+    pub mcp_server_name: String,
     pub mcp_server_url: String,
     pub background_indexing_threads: usize,
 }
@@ -70,6 +71,7 @@ mod tests {
                 "directory_path": "/tmp/repo",
                 "git_branch": "main",
                 "commit_threshold": 50,
+                "mcp_server_name": "My cool codebase",
                 "mcp_server_url": "https://localhost:9443",
                 "background_indexing_threads": 2
             },
@@ -92,6 +94,7 @@ mod tests {
         let parsed = serde_json::from_str::<AppConfig>(json).expect("config must parse");
         assert_eq!(parsed.codebase.commit_threshold, 50);
         assert_eq!(parsed.codebase.background_indexing_threads, 2);
+        assert_eq!(parsed.codebase.mcp_server_name, "My cool codebase");
         assert_eq!(parsed.qdrant.collection_name, "opencodesearch-code-chunks");
         assert_eq!(parsed.ollama.embedding_model, "qwen3-embedding:0.6b");
     }

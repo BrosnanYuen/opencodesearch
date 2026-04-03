@@ -6,6 +6,7 @@ use rmcp::handler::server::{router::tool::ToolRouter, wrapper::Parameters};
 use rmcp::schemars::JsonSchema;
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Once;
 
@@ -29,9 +30,18 @@ pub struct OpenCodeSearchMcpServer {
 impl OpenCodeSearchMcpServer {
     /// Build MCP server state with shared indexing runtime.
     pub fn new(indexing: IndexingRuntime) -> Self {
+        let mcp_server_name = indexing.config.codebase.mcp_server_name.clone();
+        let mut tool_router = Self::tool_router();
+        if let Some(route) = tool_router.map.get_mut("search_code") {
+            route.attr.description = Some(Cow::Owned(format!(
+                "Largescale codebase search for {} and return snippets + path + line ranges",
+                mcp_server_name
+            )));
+        }
+
         Self {
             indexing,
-            tool_router: Self::tool_router(),
+            tool_router,
         }
     }
 
@@ -178,7 +188,7 @@ impl OpenCodeSearchMcpServer {
     /// Search code snippets using both semantic and keyword retrieval.
     #[tool(
         name = "search_code",
-        description = "Larsescale search local codebase and return snippets + path + line ranges"
+        description = "Largescale codebase search for {mcp_server_name} and return snippets + path + line ranges"
     )]
     pub async fn search_code(&self, Parameters(input): Parameters<SearchRequest>) -> String {
         let limit = input.limit.unwrap_or(8).max(1).min(50);
@@ -190,5 +200,50 @@ impl OpenCodeSearchMcpServer {
             },
             Err(err) => format!("{{\"error\":\"search failed: {}\"}}", err),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{AppConfig, CodebaseConfig, OllamaConfig, QdrantConfig, QuickwitConfig};
+    use std::path::PathBuf;
+
+    #[test]
+    fn tool_description_contains_configured_server_name() {
+        let cfg = AppConfig {
+            codebase: CodebaseConfig {
+                directory_path: PathBuf::from("."),
+                git_branch: "main".to_string(),
+                commit_threshold: 50,
+                mcp_server_name: "My cool codebase".to_string(),
+                mcp_server_url: "https://localhost:9443".to_string(),
+                background_indexing_threads: 1,
+            },
+            ollama: OllamaConfig {
+                server_url: "http://localhost:11434".to_string(),
+                embedding_model: "qwen3-embedding:0.6b".to_string(),
+                context_size: 2000,
+            },
+            qdrant: QdrantConfig {
+                server_url: "http://localhost:6334".to_string(),
+                collection_name: "opencodesearch-code-chunks".to_string(),
+                api_key: None,
+            },
+            quickwit: QuickwitConfig {
+                quickwit_url: "http://localhost:7280".to_string(),
+                quickwit_index_id: "opencodesearch-code-chunks".to_string(),
+            },
+        };
+
+        let runtime = IndexingRuntime::from_config(cfg).expect("runtime should build");
+        let server = OpenCodeSearchMcpServer::new(runtime);
+        let tools = server.tool_router.list_all();
+        let tool = tools
+            .iter()
+            .find(|item| item.name == "search_code")
+            .expect("search_code tool should exist");
+        let description = tool.description.as_deref().unwrap_or_default();
+        assert!(description.contains("My cool codebase"));
     }
 }

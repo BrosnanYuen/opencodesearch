@@ -80,6 +80,7 @@ fn write_test_config(codebase_dir: &Path) -> anyhow::Result<PathBuf> {
             "directory_path": codebase_dir.display().to_string(),
             "git_branch": "main",
             "commit_threshold": 50,
+            "mcp_server_name": "OpenCodeSearch Test Codebase",
             "mcp_server_url": "https://localhost:9443",
             "background_indexing_threads": 2
         },
