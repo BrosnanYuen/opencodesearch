@@ -1,6 +1,6 @@
 [package]
 name = "opencodesearch"
-version = "0.1.2"
+version = "0.1.4"
 edition = "2024"
 authors = ["Brosnan Yuen <brosnanyuen@gmail.com>"]
 description = " Largescale MCP server for codebase search with background indexing and automatic updating to git commits in rust "
