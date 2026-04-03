@@ -1,9 +1,9 @@
 {
   "codebase": {
-    "directory_path": "/home/brosnan/opencodesearch",
+    "directory_path": "/tmp/.tmppPWRFP",
     "git_branch": "main",
     "commit_threshold": 50,
-    "mcp_server": "stdio",
+    "mcp_server_url": "https://localhost:9443",
     "background_indexing_threads": 2
   },
   "ollama": {

@@ -1,8 +1,13 @@
 use anyhow::Result;
+use anyhow::{Context, bail};
+use axum::Router;
+use axum_server::tls_rustls::RustlsConfig;
 use rmcp::handler::server::{router::tool::ToolRouter, wrapper::Parameters};
 use rmcp::schemars::JsonSchema;
-use rmcp::{ServerHandler, ServiceExt, tool, tool_handler, tool_router};
+use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::sync::Once;
 
 use crate::indexing::IndexingRuntime;
 use crate::types::SearchHit;
@@ -30,10 +35,71 @@ impl OpenCodeSearchMcpServer {
         }
     }
 
-    /// Serve over stdio transport for Claude Code / Codex / opencode compatibility.
-    pub async fn run_stdio(self) -> Result<()> {
-        let running = self.serve(rmcp::transport::stdio()).await?;
-        let _ = running.waiting().await?;
+    /// Serve MCP over HTTPS using streamable HTTP transport.
+    pub async fn run_https(self, mcp_server_url: &str) -> Result<()> {
+        install_rustls_crypto_provider()?;
+
+        let parsed = reqwest::Url::parse(mcp_server_url)
+            .with_context(|| format!("invalid mcp_server_url {}", mcp_server_url))?;
+
+        if parsed.scheme() != "https" {
+            bail!(
+                "mcp_server_url must use https scheme, got '{}'",
+                parsed.scheme()
+            );
+        }
+
+        let host = parsed
+            .host_str()
+            .context("mcp_server_url is missing host")?
+            .to_string();
+        let port = parsed.port_or_known_default().unwrap_or(443);
+        let raw_path = parsed.path();
+        let path = if raw_path.is_empty() || raw_path == "/" {
+            "/".to_string()
+        } else {
+            format!("/{}", raw_path.trim_matches('/'))
+        };
+
+        let cert_path = std::env::var("OPENCODESEARCH_TLS_CERT_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("certs/localhost-cert.pem"));
+        let key_path = std::env::var("OPENCODESEARCH_TLS_KEY_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("certs/localhost-key.pem"));
+
+        let rustls = RustlsConfig::from_pem_file(cert_path, key_path)
+            .await
+            .context("failed to load TLS certificate and key")?;
+
+        let mut addrs = tokio::net::lookup_host((host.as_str(), port))
+            .await
+            .with_context(|| format!("failed resolving MCP bind host {}", host))?;
+        let bind_addr = addrs
+            .next()
+            .with_context(|| format!("host {} resolved to no addresses", host))?;
+
+        let service: rmcp::transport::StreamableHttpService<
+            OpenCodeSearchMcpServer,
+            rmcp::transport::streamable_http_server::session::local::LocalSessionManager,
+        > = rmcp::transport::StreamableHttpService::new(
+            move || Ok(self.clone()),
+            Default::default(),
+            rmcp::transport::StreamableHttpServerConfig::default(),
+        );
+
+        let app = build_mcp_router(path.clone(), service);
+        eprintln!(
+            "MCP HTTPS server listening on https://{}:{}{}",
+            bind_addr.ip(),
+            bind_addr.port(),
+            path
+        );
+
+        axum_server::bind_rustls(bind_addr, rustls)
+            .serve(app.into_make_service())
+            .await
+            .context("https MCP server exited with error")?;
         Ok(())
     }
 
@@ -75,6 +141,32 @@ impl OpenCodeSearchMcpServer {
         }
 
         Ok(deduped)
+    }
+}
+
+fn install_rustls_crypto_provider() -> Result<()> {
+    static INIT: Once = Once::new();
+
+    INIT.call_once(|| {
+        // If another crate already installed one, install_default returns Err(existing provider).
+        // That condition is acceptable, so we intentionally ignore the return value.
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
+
+    Ok(())
+}
+
+fn build_mcp_router(
+    path: String,
+    service: rmcp::transport::StreamableHttpService<
+        OpenCodeSearchMcpServer,
+        rmcp::transport::streamable_http_server::session::local::LocalSessionManager,
+    >,
+) -> Router {
+    if path == "/" {
+        Router::new().route_service("/", service)
+    } else {
+        Router::new().nest_service(path.as_str(), service)
     }
 }
 

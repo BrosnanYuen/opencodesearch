@@ -64,8 +64,9 @@ async fn run_ingestor(config_path: PathBuf) -> Result<()> {
 async fn run_mcp_server(config_path: PathBuf) -> Result<()> {
     let config = AppConfig::from_path(&config_path)?;
     let runtime = IndexingRuntime::from_config(config)?;
+    let mcp_server_url = runtime.config.codebase.mcp_server_url.clone();
     let server = OpenCodeSearchMcpServer::new(runtime);
-    server.run_stdio().await
+    server.run_https(&mcp_server_url).await
 }
 
 async fn run_watchdog(config_path: PathBuf) -> Result<()> {

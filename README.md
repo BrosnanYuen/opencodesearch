@@ -18,7 +18,7 @@ It indexes large repositories into vector + keyword backends and serves search r
 - Hybrid retrieval:
   - semantic search (Qdrant vectors)
   - keyword search (Quickwit HTTP + local shadow fallback)
-- MCP stdio server compatible with MCP clients (opencode / Codex / Claude Code style stdio transport)
+- MCP HTTPS server compatible with MCP clients using streamable HTTP transport
 
 ## Architecture
 State machine in orchestrator:
@@ -53,7 +53,7 @@ Update flow:
     "directory_path": "/path/to/massive/repo",
     "git_branch": "main",
     "commit_threshold": 50,
-    "mcp_server": "stdio",
+    "mcp_server_url": "https://localhost:9443",
     "background_indexing_threads": 2
   },
   "ollama": {
@@ -117,7 +117,7 @@ OPENCODESEARCH_IPC_SOCKET=/tmp/opencodesearch.sock cargo run -- watchdog --confi
 ```
 
 ## MCP Server Usage
-The MCP server runs over stdio using `rmcp` transport.
+The MCP server runs over HTTPS using `rmcp` streamable HTTP transport.
 
 Implemented MCP tool:
 - `search_code`
@@ -157,15 +157,17 @@ Implemented MCP tool:
 ```
 
 ## Using With MCP Clients
-Any MCP client that supports stdio transport can launch this server binary.
+Any MCP client that supports MCP streamable HTTP can connect to:
+- `https://localhost:9443/`
 
-Client command pattern:
-- executable: `opencodesearch`
-- args: `mcp --config /abs/path/config.json`
-
-If using `cargo run` in development:
-- command: `cargo`
-- args: `run -- mcp --config /abs/path/config.json`
+Notes:
+- The default config binds on `https://localhost:9443`.
+- TLS cert and key default to:
+  - `certs/localhost-cert.pem`
+  - `certs/localhost-key.pem`
+- Override TLS file paths with:
+  - `OPENCODESEARCH_TLS_CERT_PATH`
+  - `OPENCODESEARCH_TLS_KEY_PATH`
 
 ## Rust API Documentation
 The crate exposes reusable modules for embedding, indexing, MCP serving, and process control.
@@ -229,7 +231,9 @@ use opencodesearch::mcp::OpenCodeSearchMcpServer;
 async fn main() -> anyhow::Result<()> {
     let config = AppConfig::from_path("config.json")?;
     let runtime = IndexingRuntime::from_config(config)?;
-    OpenCodeSearchMcpServer::new(runtime).run_stdio().await
+    OpenCodeSearchMcpServer::new(runtime)
+        .run_https("https://localhost:9443")
+        .await
 }
 ```
 

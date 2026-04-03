@@ -17,7 +17,7 @@ pub struct CodebaseConfig {
     pub directory_path: PathBuf,
     pub git_branch: String,
     pub commit_threshold: usize,
-    pub mcp_server: String,
+    pub mcp_server_url: String,
     pub background_indexing_threads: usize,
 }
 
@@ -69,7 +69,7 @@ mod tests {
                 "directory_path": "/tmp/repo",
                 "git_branch": "main",
                 "commit_threshold": 50,
-                "mcp_server": "stdio",
+                "mcp_server_url": "https://localhost:9443",
                 "background_indexing_threads": 2
             },
             "ollama": {
