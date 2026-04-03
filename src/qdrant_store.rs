@@ -91,7 +91,9 @@ impl QdrantStore {
 
         self.retry_qdrant("upsert_points", || async {
             self.client
-                .upsert_points(UpsertPointsBuilder::new(&self.collection, points.clone()).wait(true))
+                .upsert_points(
+                    UpsertPointsBuilder::new(&self.collection, points.clone()).wait(true),
+                )
                 .await
         })
         .await
@@ -205,10 +207,7 @@ impl QdrantStore {
 
                     if !retryable || attempt == attempts {
                         return Err(err).with_context(|| {
-                            format!(
-                                "qdrant {} failed after {} attempt(s)",
-                                op_name, attempt
-                            )
+                            format!("qdrant {} failed after {} attempt(s)", op_name, attempt)
                         });
                     }
 

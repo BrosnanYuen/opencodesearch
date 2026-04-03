@@ -2,7 +2,10 @@ use anyhow::Result;
 use anyhow::{Context, bail};
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
-use rmcp::handler::server::{router::tool::ToolRouter, wrapper::Parameters};
+use rmcp::handler::server::{
+    router::tool::ToolRouter,
+    wrapper::{Json, Parameters},
+};
 use rmcp::schemars::JsonSchema;
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
@@ -13,11 +16,31 @@ use std::sync::Once;
 use crate::indexing::IndexingRuntime;
 use crate::types::SearchHit;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BindScheme {
+    Http,
+    Https,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedMcpServerUrl {
+    scheme: BindScheme,
+    host: String,
+    port: u16,
+    path: String,
+}
+
 /// JSON input for MCP search tool calls.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SearchRequest {
     pub query: String,
     pub limit: Option<usize>,
+}
+
+/// Structured MCP tool output.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SearchResponse {
+    pub hits: Vec<SearchHit>,
 }
 
 /// MCP server process that exposes code search to compatible clients.
@@ -45,49 +68,18 @@ impl OpenCodeSearchMcpServer {
         }
     }
 
-    /// Serve MCP over HTTPS using streamable HTTP transport.
-    pub async fn run_https(self, mcp_server_url: &str) -> Result<()> {
-        install_rustls_crypto_provider()?;
+    /// Serve MCP over streamable HTTP transport.
+    ///
+    /// `mcp_server_url` can be either `http://...` or `https://...`.
+    pub async fn run_streamable_http(self, mcp_server_url: &str) -> Result<()> {
+        let parsed = parse_mcp_server_url(mcp_server_url)?;
 
-        let parsed = reqwest::Url::parse(mcp_server_url)
-            .with_context(|| format!("invalid mcp_server_url {}", mcp_server_url))?;
-
-        if parsed.scheme() != "https" {
-            bail!(
-                "mcp_server_url must use https scheme, got '{}'",
-                parsed.scheme()
-            );
-        }
-
-        let host = parsed
-            .host_str()
-            .context("mcp_server_url is missing host")?
-            .to_string();
-        let port = parsed.port_or_known_default().unwrap_or(443);
-        let raw_path = parsed.path();
-        let path = if raw_path.is_empty() || raw_path == "/" {
-            "/".to_string()
-        } else {
-            format!("/{}", raw_path.trim_matches('/'))
-        };
-
-        let cert_path = std::env::var("OPENCODESEARCH_TLS_CERT_PATH")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("certs/localhost-cert.pem"));
-        let key_path = std::env::var("OPENCODESEARCH_TLS_KEY_PATH")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("certs/localhost-key.pem"));
-
-        let rustls = RustlsConfig::from_pem_file(cert_path, key_path)
+        let mut addrs = tokio::net::lookup_host((parsed.host.as_str(), parsed.port))
             .await
-            .context("failed to load TLS certificate and key")?;
-
-        let mut addrs = tokio::net::lookup_host((host.as_str(), port))
-            .await
-            .with_context(|| format!("failed resolving MCP bind host {}", host))?;
+            .with_context(|| format!("failed resolving MCP bind host {}", parsed.host))?;
         let bind_addr = addrs
             .next()
-            .with_context(|| format!("host {} resolved to no addresses", host))?;
+            .with_context(|| format!("host {} resolved to no addresses", parsed.host))?;
 
         let service: rmcp::transport::StreamableHttpService<
             OpenCodeSearchMcpServer,
@@ -98,18 +90,60 @@ impl OpenCodeSearchMcpServer {
             rmcp::transport::StreamableHttpServerConfig::default(),
         );
 
-        let app = build_mcp_router(path.clone(), service);
-        eprintln!(
-            "MCP HTTPS server listening on https://{}:{}{}",
-            bind_addr.ip(),
-            bind_addr.port(),
-            path
-        );
+        let app = build_mcp_router(parsed.path.clone(), service);
 
-        axum_server::bind_rustls(bind_addr, rustls)
-            .serve(app.into_make_service())
+        match parsed.scheme {
+            BindScheme::Http => {
+                eprintln!(
+                    "MCP HTTP server listening on http://{}:{}{}",
+                    bind_addr.ip(),
+                    bind_addr.port(),
+                    parsed.path
+                );
+                axum_server::bind(bind_addr)
+                    .serve(app.into_make_service())
+                    .await
+                    .context("http MCP server exited with error")?;
+            }
+            BindScheme::Https => {
+                install_rustls_crypto_provider()?;
+
+                let cert_path = std::env::var("OPENCODESEARCH_TLS_CERT_PATH")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| PathBuf::from("certs/localhost-cert.pem"));
+                let key_path = std::env::var("OPENCODESEARCH_TLS_KEY_PATH")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| PathBuf::from("certs/localhost-key.pem"));
+
+                let rustls = RustlsConfig::from_pem_file(cert_path, key_path)
+                    .await
+                    .context("failed to load TLS certificate and key")?;
+
+                eprintln!(
+                    "MCP HTTPS server listening on https://{}:{}{}",
+                    bind_addr.ip(),
+                    bind_addr.port(),
+                    parsed.path
+                );
+                axum_server::bind_rustls(bind_addr, rustls)
+                    .serve(app.into_make_service())
+                    .await
+                    .context("https MCP server exited with error")?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Serve MCP over stdio transport for local MCP clients.
+    pub async fn run_stdio(self) -> Result<()> {
+        let service = rmcp::serve_server(self, rmcp::transport::stdio())
             .await
-            .context("https MCP server exited with error")?;
+            .context("failed to start stdio MCP server")?;
+        let _ = service
+            .waiting()
+            .await
+            .context("stdio MCP server task join failed")?;
         Ok(())
     }
 
@@ -166,6 +200,45 @@ fn install_rustls_crypto_provider() -> Result<()> {
     Ok(())
 }
 
+fn parse_mcp_server_url(mcp_server_url: &str) -> Result<ParsedMcpServerUrl> {
+    let parsed = reqwest::Url::parse(mcp_server_url)
+        .with_context(|| format!("invalid mcp_server_url {}", mcp_server_url))?;
+
+    let scheme = match parsed.scheme() {
+        "http" => BindScheme::Http,
+        "https" => BindScheme::Https,
+        other => bail!(
+            "mcp_server_url must use http or https scheme, got '{}'",
+            other
+        ),
+    };
+
+    let host = parsed
+        .host_str()
+        .context("mcp_server_url is missing host")?
+        .to_string();
+
+    let default_port = match scheme {
+        BindScheme::Http => 80,
+        BindScheme::Https => 443,
+    };
+    let port = parsed.port().unwrap_or(default_port);
+
+    let raw_path = parsed.path();
+    let path = if raw_path.is_empty() || raw_path == "/" {
+        "/".to_string()
+    } else {
+        format!("/{}", raw_path.trim_matches('/'))
+    };
+
+    Ok(ParsedMcpServerUrl {
+        scheme,
+        host,
+        port,
+        path,
+    })
+}
+
 fn build_mcp_router(
     path: String,
     service: rmcp::transport::StreamableHttpService<
@@ -190,16 +263,16 @@ impl OpenCodeSearchMcpServer {
         name = "search_code",
         description = "Largescale codebase search for {mcp_server_name} and return snippets + path + line ranges"
     )]
-    pub async fn search_code(&self, Parameters(input): Parameters<SearchRequest>) -> String {
+    pub async fn search_code(
+        &self,
+        Parameters(input): Parameters<SearchRequest>,
+    ) -> Result<Json<SearchResponse>, rmcp::ErrorData> {
         let limit = input.limit.unwrap_or(8).max(1).min(50);
-
-        match self.search_internal(&input.query, limit).await {
-            Ok(results) => match serde_json::to_string_pretty(&results) {
-                Ok(serialized) => serialized,
-                Err(err) => format!("{{\"error\":\"serialization failed: {}\"}}", err),
-            },
-            Err(err) => format!("{{\"error\":\"search failed: {}\"}}", err),
-        }
+        let results = self
+            .search_internal(&input.query, limit)
+            .await
+            .map_err(|err| rmcp::ErrorData::internal_error(err.to_string(), None))?;
+        Ok(Json(SearchResponse { hits: results }))
     }
 }
 
@@ -208,6 +281,7 @@ mod tests {
     use super::*;
     use crate::config::{AppConfig, CodebaseConfig, OllamaConfig, QdrantConfig, QuickwitConfig};
     use std::path::PathBuf;
+    use tokio::time::Duration;
 
     #[test]
     fn tool_description_contains_configured_server_name() {
@@ -217,7 +291,7 @@ mod tests {
                 git_branch: "main".to_string(),
                 commit_threshold: 50,
                 mcp_server_name: "My cool codebase".to_string(),
-                mcp_server_url: "https://localhost:9443".to_string(),
+                mcp_server_url: "http://localhost:9443".to_string(),
                 background_indexing_threads: 1,
             },
             ollama: OllamaConfig {
@@ -245,5 +319,67 @@ mod tests {
             .expect("search_code tool should exist");
         let description = tool.description.as_deref().unwrap_or_default();
         assert!(description.contains("My cool codebase"));
+    }
+
+    #[test]
+    fn mcp_server_url_parsing_supports_http_and_https() {
+        let http = parse_mcp_server_url("http://127.0.0.1:9000/mcp").expect("http parse");
+        assert_eq!(http.scheme, BindScheme::Http);
+        assert_eq!(http.port, 9000);
+        assert_eq!(http.path, "/mcp");
+
+        let https = parse_mcp_server_url("https://localhost").expect("https parse");
+        assert_eq!(https.scheme, BindScheme::Https);
+        assert_eq!(https.port, 443);
+        assert_eq!(https.path, "/");
+    }
+
+    #[test]
+    fn mcp_server_url_parsing_rejects_unsupported_scheme() {
+        let err = parse_mcp_server_url("tcp://localhost:9443").expect_err("must reject tcp");
+        assert!(err.to_string().contains("http or https"));
+    }
+
+    #[tokio::test]
+    async fn search_code_returns_mcp_error_when_backend_fails() {
+        let cfg = AppConfig {
+            codebase: CodebaseConfig {
+                directory_path: PathBuf::from("."),
+                git_branch: "main".to_string(),
+                commit_threshold: 50,
+                mcp_server_name: "Test".to_string(),
+                mcp_server_url: "http://localhost:9443".to_string(),
+                background_indexing_threads: 1,
+            },
+            ollama: OllamaConfig {
+                server_url: "http://127.0.0.1:1".to_string(),
+                embedding_model: "qwen3-embedding:0.6b".to_string(),
+                context_size: 2000,
+            },
+            qdrant: QdrantConfig {
+                server_url: "http://localhost:6334".to_string(),
+                collection_name: "opencodesearch-code-chunks".to_string(),
+                api_key: None,
+            },
+            quickwit: QuickwitConfig {
+                quickwit_url: "http://localhost:7280".to_string(),
+                quickwit_index_id: "opencodesearch-code-chunks".to_string(),
+            },
+        };
+
+        let runtime = IndexingRuntime::from_config(cfg).expect("runtime should build");
+        let server = OpenCodeSearchMcpServer::new(runtime);
+        let payload = SearchRequest {
+            query: "where is obj changed".to_string(),
+            limit: Some(3),
+        };
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            server.search_code(Parameters(payload)),
+        )
+        .await
+        .expect("search must return quickly");
+        assert!(result.is_err(), "expected MCP protocol error result");
     }
 }

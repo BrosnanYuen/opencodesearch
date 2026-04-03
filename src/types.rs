@@ -1,7 +1,8 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Parsed and indexed chunk metadata stored across backends.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CodeChunk {
     pub id: String,
     pub path: String,
@@ -11,7 +12,7 @@ pub struct CodeChunk {
 }
 
 /// Search result returned by semantic or keyword search.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SearchHit {
     pub path: String,
     pub snippet: String,

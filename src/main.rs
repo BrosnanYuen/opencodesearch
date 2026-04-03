@@ -27,9 +27,10 @@ async fn main() -> Result<()> {
         }
         "ingestor" => run_ingestor(config_path).await,
         "mcp" => run_mcp_server(config_path).await,
+        "mcp-stdio" => run_mcp_stdio(config_path).await,
         "watchdog" => run_watchdog(config_path).await,
         other => anyhow::bail!(
-            "unknown role '{}'. expected orchestrator|ingestor|mcp|watchdog",
+            "unknown role '{}'. expected orchestrator|ingestor|mcp|mcp-stdio|watchdog",
             other
         ),
     }
@@ -66,7 +67,14 @@ async fn run_mcp_server(config_path: PathBuf) -> Result<()> {
     let runtime = IndexingRuntime::from_config(config)?;
     let mcp_server_url = runtime.config.codebase.mcp_server_url.clone();
     let server = OpenCodeSearchMcpServer::new(runtime);
-    server.run_https(&mcp_server_url).await
+    server.run_streamable_http(&mcp_server_url).await
+}
+
+async fn run_mcp_stdio(config_path: PathBuf) -> Result<()> {
+    let config = AppConfig::from_path(&config_path)?;
+    let runtime = IndexingRuntime::from_config(config)?;
+    let server = OpenCodeSearchMcpServer::new(runtime);
+    server.run_stdio().await
 }
 
 async fn run_watchdog(config_path: PathBuf) -> Result<()> {

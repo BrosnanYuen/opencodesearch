@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+MCP_URL="${MCP_URL:-http://localhost:9443/}"
+MCP_INSECURE="${MCP_INSECURE:-0}"
+
+curl_args=(-sS)
+if [[ "$MCP_URL" == https://* ]] && [[ "$MCP_INSECURE" == "1" ]]; then
+  curl_args+=(-k)
+fi
+
 headers_file="$(mktemp)"
 init_body_file="$(mktemp)"
 trap 'rm -f "$headers_file" "$init_body_file"' EXIT
 
-curl -k -sS -D "$headers_file" https://localhost:9443/ \
+curl "${curl_args[@]}" -D "$headers_file" "$MCP_URL" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"curl-test","version":"1.0"}}}' \
@@ -29,7 +37,7 @@ echo
 echo "mcp-session-id: $session_id"
 echo
 
-curl -k -sS https://localhost:9443/ \
+curl "${curl_args[@]}" "$MCP_URL" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H "mcp-session-id: $session_id" \
@@ -39,7 +47,7 @@ curl -k -sS https://localhost:9443/ \
 echo
 
 echo "--- MCP tools/call search_code ---"
-curl -k -N https://localhost:9443/ \
+curl "${curl_args[@]}" -N "$MCP_URL" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H "mcp-session-id: $session_id" \

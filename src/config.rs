@@ -72,7 +72,7 @@ mod tests {
                 "git_branch": "main",
                 "commit_threshold": 50,
                 "mcp_server_name": "My cool codebase",
-                "mcp_server_url": "https://localhost:9443",
+                "mcp_server_url": "http://localhost:9443",
                 "background_indexing_threads": 2
             },
             "ollama": {
