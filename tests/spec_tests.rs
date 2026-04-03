@@ -80,7 +80,8 @@ fn write_test_config(codebase_dir: &Path) -> anyhow::Result<PathBuf> {
             "directory_path": codebase_dir.display().to_string(),
             "git_branch": "main",
             "commit_threshold": 50,
-            "mcp_server": "stdio"
+            "mcp_server": "stdio",
+            "background_indexing_threads": 2
         },
         "ollama": {
             "server_url": "http://localhost:11434",

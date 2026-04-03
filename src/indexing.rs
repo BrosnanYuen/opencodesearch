@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use ollama_rs::Ollama;
 use ollama_rs::generation::embeddings::request::{EmbeddingsInput, GenerateEmbeddingsRequest};
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -47,11 +48,96 @@ impl IndexingRuntime {
     /// Run a full-codebase traversal and index all supported text files.
     pub async fn index_entire_codebase(&self) -> Result<()> {
         let all_files = collect_candidate_files(&self.config.codebase.directory_path)?;
-        self.index_files(&all_files).await
+        if all_files.is_empty() {
+            return Ok(());
+        }
+
+        let workers = self.config.codebase.background_indexing_threads.max(1);
+        if workers == 1 || all_files.len() == 1 {
+            return self.index_files(&all_files).await;
+        }
+
+        let partitions = partition_files(&all_files, workers);
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(workers)
+            .build()
+            .context("failed building rayon thread pool for background indexing")?;
+
+        let runtime = self.clone();
+        let results = pool.install(|| {
+            partitions
+                .into_par_iter()
+                .map(|partition| {
+                    if partition.is_empty() {
+                        return Ok(());
+                    }
+
+                    let thread_runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("failed creating tokio runtime for rayon indexing worker")?;
+
+                    thread_runtime.block_on(runtime.index_files(&partition))
+                })
+                .collect::<Vec<Result<()>>>()
+        });
+
+        for result in results {
+            result?;
+        }
+
+        Ok(())
     }
 
     /// Index a specific list of files.
     pub async fn index_files(&self, files: &[PathBuf]) -> Result<()> {
+        if files.is_empty() {
+            return Ok(());
+        }
+
+        // Prevent nested rayon fan-out when this call is already running on a rayon worker.
+        if rayon::current_thread_index().is_some() {
+            return self.index_files_sequential(files).await;
+        }
+
+        let workers = self.config.codebase.background_indexing_threads.max(1);
+        if workers == 1 || files.len() == 1 {
+            return self.index_files_sequential(files).await;
+        }
+
+        let partitions = partition_files(files, workers);
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(workers)
+            .build()
+            .context("failed building rayon thread pool for index_files")?;
+
+        let runtime = self.clone();
+        let results = pool.install(|| {
+            partitions
+                .into_par_iter()
+                .map(|partition| {
+                    if partition.is_empty() {
+                        return Ok(());
+                    }
+
+                    let thread_runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .context("failed creating tokio runtime for rayon file partition")?;
+
+                    thread_runtime.block_on(runtime.index_files(&partition))
+                })
+                .collect::<Vec<Result<()>>>()
+        });
+
+        for result in results {
+            result?;
+        }
+
+        Ok(())
+    }
+
+    async fn index_files_sequential(&self, files: &[PathBuf]) -> Result<()> {
         // Stage A: parse/chunk every file.
         let mut all_chunks = Vec::new();
         for file in files {
@@ -176,6 +262,17 @@ pub fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
     }
 
     Ok(files)
+}
+
+fn partition_files(files: &[PathBuf], workers: usize) -> Vec<Vec<PathBuf>> {
+    let worker_count = workers.max(1).min(files.len().max(1));
+    let mut partitions = vec![Vec::<PathBuf>::new(); worker_count];
+
+    for (idx, path) in files.iter().enumerate() {
+        partitions[idx % worker_count].push(path.clone());
+    }
+
+    partitions
 }
 
 #[cfg(test)]

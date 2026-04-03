@@ -1,9 +1,10 @@
 {
   "codebase": {
-    "directory_path": "/home/brosnan/opencodesearch",
+    "directory_path": "/tmp/.tmpy2tjds",
     "git_branch": "main",
     "commit_threshold": 50,
-    "mcp_server": "stdio"
+    "mcp_server": "stdio",
+    "background_indexing_threads": 2
   },
   "ollama": {
     "server_url": "http://localhost:11434",

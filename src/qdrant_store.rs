@@ -4,6 +4,7 @@ use qdrant_client::qdrant::{
     VectorParamsBuilder,
 };
 use qdrant_client::{Payload, Qdrant};
+use tokio::time::{Duration, sleep};
 
 use crate::types::{CodeChunk, SearchHit};
 
@@ -34,19 +35,24 @@ impl QdrantStore {
     /// Ensure vector collection exists before ingesting points.
     pub async fn ensure_collection(&self, vector_size: u64) -> Result<()> {
         let exists = self
-            .client
-            .collection_exists(&self.collection)
+            .retry_qdrant("collection_exists", || async {
+                self.client.collection_exists(&self.collection).await
+            })
             .await
             .context("qdrant collection_exists failed")?;
 
         if !exists {
-            self.client
-                .create_collection(
-                    CreateCollectionBuilder::new(&self.collection)
-                        .vectors_config(VectorParamsBuilder::new(vector_size, Distance::Cosine)),
-                )
-                .await
-                .context("qdrant create_collection failed")?;
+            self.retry_qdrant("create_collection", || async {
+                self.client
+                    .create_collection(
+                        CreateCollectionBuilder::new(&self.collection).vectors_config(
+                            VectorParamsBuilder::new(vector_size, Distance::Cosine),
+                        ),
+                    )
+                    .await
+            })
+            .await
+            .context("qdrant create_collection failed")?;
         }
 
         Ok(())
@@ -83,10 +89,13 @@ impl QdrantStore {
             points.push(PointStruct::new(id, vector.clone(), payload));
         }
 
-        self.client
-            .upsert_points(UpsertPointsBuilder::new(&self.collection, points).wait(true))
-            .await
-            .context("qdrant upsert_points failed")?;
+        self.retry_qdrant("upsert_points", || async {
+            self.client
+                .upsert_points(UpsertPointsBuilder::new(&self.collection, points.clone()).wait(true))
+                .await
+        })
+        .await
+        .context("qdrant upsert_points failed")?;
 
         Ok(())
     }
@@ -98,13 +107,16 @@ impl QdrantStore {
         limit: u64,
     ) -> Result<Vec<SearchHit>> {
         let response = self
-            .client
-            .query(
-                QueryPointsBuilder::new(&self.collection)
-                    .query(query_vector)
-                    .limit(limit)
-                    .with_payload(true),
-            )
+            .retry_qdrant("query", || async {
+                self.client
+                    .query(
+                        QueryPointsBuilder::new(&self.collection)
+                            .query(query_vector.clone())
+                            .limit(limit)
+                            .with_payload(true),
+                    )
+                    .await
+            })
             .await
             .context("qdrant query failed")?;
 
@@ -170,6 +182,47 @@ impl QdrantStore {
         }
 
         Ok(())
+    }
+}
+
+impl QdrantStore {
+    async fn retry_qdrant<T, F, Fut>(&self, op_name: &str, mut op: F) -> Result<T>
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = std::result::Result<T, qdrant_client::QdrantError>>,
+    {
+        let attempts = 20usize;
+        let mut last_error = None;
+
+        for attempt in 1..=attempts {
+            match op().await {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    let msg = err.to_string();
+                    let retryable = msg.contains("Service was not ready")
+                        || msg.contains("transport error")
+                        || msg.contains("Unavailable");
+
+                    if !retryable || attempt == attempts {
+                        return Err(err).with_context(|| {
+                            format!(
+                                "qdrant {} failed after {} attempt(s)",
+                                op_name, attempt
+                            )
+                        });
+                    }
+
+                    last_error = Some(err);
+                    sleep(Duration::from_millis(250)).await;
+                }
+            }
+        }
+
+        if let Some(err) = last_error {
+            Err(err).with_context(|| format!("qdrant {} failed after retries", op_name))
+        } else {
+            anyhow::bail!("qdrant {} failed without attempts", op_name)
+        }
     }
 }
 

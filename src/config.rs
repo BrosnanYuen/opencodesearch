@@ -18,6 +18,7 @@ pub struct CodebaseConfig {
     pub git_branch: String,
     pub commit_threshold: usize,
     pub mcp_server: String,
+    pub background_indexing_threads: usize,
 }
 
 /// Ollama embedding settings.
@@ -68,7 +69,8 @@ mod tests {
                 "directory_path": "/tmp/repo",
                 "git_branch": "main",
                 "commit_threshold": 50,
-                "mcp_server": "stdio"
+                "mcp_server": "stdio",
+                "background_indexing_threads": 2
             },
             "ollama": {
                 "server_url": "http://localhost:11434",
@@ -87,6 +89,7 @@ mod tests {
 
         let parsed = serde_json::from_str::<AppConfig>(json).expect("config must parse");
         assert_eq!(parsed.codebase.commit_threshold, 50);
+        assert_eq!(parsed.codebase.background_indexing_threads, 2);
         assert_eq!(parsed.ollama.embedding_model, "qwen3-embedding:0.6b");
     }
 }
