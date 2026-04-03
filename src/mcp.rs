@@ -9,6 +9,7 @@ use rmcp::handler::server::{
 use rmcp::schemars::JsonSchema;
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use serde::{Deserialize, Serialize};
+use serde::de::Deserializer;
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Once;
@@ -34,6 +35,7 @@ struct ParsedMcpServerUrl {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SearchRequest {
     pub query: String,
+    #[serde(default, deserialize_with = "deserialize_limit")]
     pub limit: Option<i64>,
 }
 
@@ -48,6 +50,28 @@ pub struct SearchResponse {
 pub struct OpenCodeSearchMcpServer {
     indexing: IndexingRuntime,
     tool_router: ToolRouter<Self>,
+}
+
+fn deserialize_limit<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum LimitValue {
+        Int(i64),
+        Str(String),
+    }
+
+    match Option::<LimitValue>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(LimitValue::Int(value)) => Ok(Some(value)),
+        Some(LimitValue::Str(value)) => value
+            .trim()
+            .parse::<i64>()
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+    }
 }
 
 impl OpenCodeSearchMcpServer {
@@ -336,6 +360,17 @@ mod tests {
     fn mcp_server_url_parsing_rejects_unsupported_scheme() {
         let err = parse_mcp_server_url("tcp://localhost:9443").expect_err("must reject tcp");
         assert!(err.to_string().contains("http or https"));
+    }
+
+    #[test]
+    fn search_request_limit_accepts_numeric_string() {
+        let payload = serde_json::json!({
+            "query": "find scheduler",
+            "limit": "20"
+        });
+
+        let parsed: SearchRequest = serde_json::from_value(payload).expect("request should parse");
+        assert_eq!(parsed.limit, Some(20));
     }
 
     #[tokio::test]
