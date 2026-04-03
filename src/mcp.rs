@@ -86,7 +86,7 @@ impl OpenCodeSearchMcpServer {
     /// Search code snippets using both semantic and keyword retrieval.
     #[tool(
         name = "search_code",
-        description = "Search code snippets and return snippets + path + line ranges"
+        description = "Larsescale search local codebase and return snippets + path + line ranges"
     )]
     pub async fn search_code(&self, Parameters(input): Parameters<SearchRequest>) -> String {
         let limit = input.limit.unwrap_or(8).max(1).min(50);
