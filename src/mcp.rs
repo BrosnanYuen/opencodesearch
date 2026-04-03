@@ -34,7 +34,7 @@ struct ParsedMcpServerUrl {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SearchRequest {
     pub query: String,
-    pub limit: Option<usize>,
+    pub limit: Option<i64>,
 }
 
 /// Structured MCP tool output.
@@ -267,7 +267,7 @@ impl OpenCodeSearchMcpServer {
         &self,
         Parameters(input): Parameters<SearchRequest>,
     ) -> Result<Json<SearchResponse>, rmcp::ErrorData> {
-        let limit = input.limit.unwrap_or(8).max(1).min(50);
+        let limit = input.limit.unwrap_or(8).clamp(1, 50) as usize;
         let results = self
             .search_internal(&input.query, limit)
             .await

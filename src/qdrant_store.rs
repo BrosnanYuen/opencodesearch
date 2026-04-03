@@ -150,8 +150,8 @@ impl QdrantStore {
             hits.push(SearchHit {
                 path,
                 snippet,
-                start_line,
-                end_line,
+                start_line: start_line as i64,
+                end_line: end_line as i64,
                 score: point.score,
                 source: "qdrant".to_string(),
             });

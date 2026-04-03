@@ -130,8 +130,8 @@ impl QuickwitStore {
                         hits.push(SearchHit {
                             path: chunk.path,
                             snippet: chunk.snippet,
-                            start_line: chunk.start_line,
-                            end_line: chunk.end_line,
+                            start_line: chunk.start_line as i64,
+                            end_line: chunk.end_line as i64,
                             score: 1.0,
                             source: "quickwit-shadow".to_string(),
                         });
@@ -188,8 +188,8 @@ impl QuickwitStore {
                         hits.push(SearchHit {
                             path,
                             snippet,
-                            start_line,
-                            end_line,
+                            start_line: start_line as i64,
+                            end_line: end_line as i64,
                             score: 1.0,
                             source: "quickwit".to_string(),
                         });

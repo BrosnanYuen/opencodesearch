@@ -16,8 +16,8 @@ pub struct CodeChunk {
 pub struct SearchHit {
     pub path: String,
     pub snippet: String,
-    pub start_line: usize,
-    pub end_line: usize,
+    pub start_line: i64,
+    pub end_line: i64,
     pub score: f32,
     pub source: String,
 }
