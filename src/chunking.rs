@@ -32,6 +32,9 @@ pub fn chunk_file(path: &Path, context_size: usize) -> Result<Vec<CodeChunk>> {
         blocks.push(content.clone());
     }
 
+    // Combine neighboring small blocks so chunks are closer to the target size.
+    blocks = merge_neighboring_blocks(blocks, context_size);
+
     // Stage 2: fallback split oversized blocks with recursive splitter and overlap.
     let splitter = RecursiveCharacterTextSplitter::new(None, context_size.max(128), 64);
     let mut chunks = Vec::new();
@@ -65,6 +68,47 @@ pub fn chunk_file(path: &Path, context_size: usize) -> Result<Vec<CodeChunk>> {
     }
 
     Ok(output)
+}
+
+fn merge_neighboring_blocks(blocks: Vec<String>, context_size: usize) -> Vec<String> {
+    let target = context_size.max(1);
+    let mut merged = Vec::new();
+    let mut current = String::new();
+
+    for raw_block in blocks {
+        if raw_block.trim().is_empty() {
+            continue;
+        }
+
+        let block = raw_block.trim().to_string();
+        let separator_len = if current.is_empty() { 0 } else { 2 };
+        let candidate_len = current.len() + separator_len + block.len();
+
+        if candidate_len <= target {
+            if !current.is_empty() {
+                current.push_str("\n\n");
+            }
+            current.push_str(&block);
+            continue;
+        }
+
+        if !current.is_empty() {
+            merged.push(current);
+            current = String::new();
+        }
+
+        if block.len() > target {
+            merged.push(block);
+        } else {
+            current.push_str(&block);
+        }
+    }
+
+    if !current.is_empty() {
+        merged.push(current);
+    }
+
+    merged
 }
 
 fn guess_language(path: &Path) -> Option<CodeLanguage> {
@@ -129,5 +173,20 @@ mod tests {
         let chunks = chunk_file(&file, 200).expect("chunking should work");
         assert!(!chunks.is_empty());
         assert!(chunks.iter().any(|c| c.snippet.contains("def a")));
+    }
+
+    #[test]
+    fn merges_neighboring_small_blocks() {
+        let blocks = vec![
+            "def a():\n    return 1".to_string(),
+            "def b():\n    return 2".to_string(),
+            "def c():\n    return 3".to_string(),
+        ];
+
+        let merged = merge_neighboring_blocks(blocks, 52);
+        assert_eq!(merged.len(), 2);
+        assert!(merged[0].contains("def a()"));
+        assert!(merged[0].contains("def b()"));
+        assert!(merged[1].contains("def c()"));
     }
 }
